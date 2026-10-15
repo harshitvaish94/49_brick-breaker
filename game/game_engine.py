@@ -1,5 +1,8 @@
 
 import pygame
+import math
+from array import array
+
 from .paddle import Paddle
 from .ball import Ball
 from .brick import Brick
@@ -18,7 +21,6 @@ BRICK_COLORS = [
     (80, 140, 200),
 ]
 
-# Ball speed and paddle width for each difficulty.
 DIFFICULTIES = {
     "Easy": {"ball_speed": 3, "paddle_width": 125},
     "Medium": {"ball_speed": 4, "paddle_width": 100},
@@ -27,14 +29,35 @@ DIFFICULTIES = {
 
 
 class GameEngine:
+    @staticmethod
+    def _make_tone(frequency, duration, volume=0.25):
+        """Generate a short sound effect without external audio files."""
+        sample_rate = 22050
+        total_samples = int(sample_rate * duration)
+        samples = array("h")
+
+        for i in range(total_samples):
+            envelope = 1.0 - (i / total_samples)
+            value = int(
+                32767
+                * volume
+                * envelope
+                * math.sin(
+                    2 * math.pi * frequency * i / sample_rate
+                )
+            )
+            samples.append(value)
+
+        return pygame.mixer.Sound(buffer=samples.tobytes())
+
     def __init__(self, width, height, difficulty="Medium"):
         self.width = width
         self.height = height
         self.difficulty = difficulty
 
         settings = DIFFICULTIES[difficulty]
-        paddle_width = settings["paddle_width"]
         self.ball_speed = settings["ball_speed"]
+        paddle_width = settings["paddle_width"]
 
         self.paddle = Paddle(
             width // 2 - paddle_width // 2,
@@ -63,6 +86,35 @@ class GameEngine:
         self.restart_requested = False
         self.selected_difficulty = difficulty
 
+        # Task 4: Sound effects.
+        self.sounds = {
+            "brick": None,
+            "bounce": None,
+            "win": None,
+            "lose": None,
+        }
+
+        try:
+            # The mixer might not be available on every system.
+            if pygame.mixer.get_init():
+                self.sounds["brick"] = self._make_tone(900, 0.08)
+                self.sounds["bounce"] = self._make_tone(450, 0.05)
+                self.sounds["win"] = self._make_tone(1000, 0.35)
+                self.sounds["lose"] = self._make_tone(180, 0.45)
+        except (pygame.error, ValueError, OverflowError):
+            print("Audio unavailable; continuing without sound.")
+
+        self._paddle_was_colliding = False
+
+    def _play_sound(self, name):
+        sound = self.sounds.get(name)
+
+        if sound is not None:
+            try:
+                sound.play()
+            except pygame.error:
+                pass
+
     def _build_bricks(self, rows, cols):
         bricks = []
         margin, gap, top = 30, 6, 60
@@ -80,17 +132,17 @@ class GameEngine:
         return bricks
 
     def handle_event(self, event):
-        # Show replay choices after the game ends.
+        # Task 3: Replay with a selected difficulty.
         if self.game_over and event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_1 or event.key == pygame.K_KP1:
+            if event.key in (pygame.K_1, pygame.K_KP1):
                 self.selected_difficulty = "Easy"
                 self.restart_requested = True
 
-            elif event.key == pygame.K_2 or event.key == pygame.K_KP2:
+            elif event.key in (pygame.K_2, pygame.K_KP2):
                 self.selected_difficulty = "Medium"
                 self.restart_requested = True
 
-            elif event.key == pygame.K_3 or event.key == pygame.K_KP3:
+            elif event.key in (pygame.K_3, pygame.K_KP3):
                 self.selected_difficulty = "Hard"
                 self.restart_requested = True
 
@@ -163,27 +215,37 @@ class GameEngine:
 
         self.ball.move()
 
-        # Bounce off the left and right walls.
+        # Left and right wall collisions.
         if self.ball.x - self.ball.radius <= 0 and self.ball.vx < 0:
             self.ball.vx = abs(self.ball.vx)
+            self._play_sound("bounce")
 
         elif (
             self.ball.x + self.ball.radius >= self.width
             and self.ball.vx > 0
         ):
             self.ball.vx = -abs(self.ball.vx)
+            self._play_sound("bounce")
 
-        # Bounce off the top wall.
+        # Top wall collision.
         if self.ball.y - self.ball.radius <= 0 and self.ball.vy < 0:
             self.ball.vy = abs(self.ball.vy)
+            self._play_sound("bounce")
 
         # Paddle collision.
         paddle_rect = self.paddle.rect()
+        paddle_colliding = self.ball.rect().colliderect(paddle_rect)
 
-        if self.ball.rect().colliderect(paddle_rect):
+        if paddle_colliding:
             self._resolve_collision(
                 paddle_rect, previous_x, previous_y
             )
+
+            # Avoid playing the sound repeatedly during one contact.
+            if not self._paddle_was_colliding:
+                self._play_sound("bounce")
+
+        self._paddle_was_colliding = paddle_colliding
 
         # Brick collision.
         for brick in self.bricks:
@@ -196,28 +258,35 @@ class GameEngine:
                 )
                 brick.alive = False
                 self.score += 1
+                self._play_sound("brick")
                 break
 
-        # Lose a life when the ball falls below the screen.
+        # Ball falls below the screen.
         if self.ball.y - self.ball.radius > self.height:
             self.lives -= 1
 
             if self.lives <= 0:
                 self.game_over = True
                 self.result = "lose"
+                self._play_sound("lose")
             else:
                 self._reset_ball()
 
-        # Win when all bricks have been destroyed.
-        if all(not brick.alive for brick in self.bricks):
+        # All bricks destroyed: player wins.
+        if (
+            not self.game_over
+            and all(not brick.alive for brick in self.bricks)
+        ):
             self.game_over = True
             self.result = "win"
+            self._play_sound("win")
 
     def _reset_ball(self):
         self.ball.x = self.width // 2
         self.ball.y = self.height - 50
         self.ball.vx = self.ball_speed
         self.ball.vy = -self.ball_speed
+        self._paddle_was_colliding = False
 
     def render(self, screen):
         screen.fill(BG)
@@ -238,7 +307,7 @@ class GameEngine:
                 color = BRICK_COLORS[row % len(BRICK_COLORS)]
                 pygame.draw.rect(screen, color, brick.rect())
 
-        # Display score and lives.
+        # Score and lives.
         score_text = self.font.render(
             f"Score: {self.score}", True, WHITE
         )
@@ -249,7 +318,7 @@ class GameEngine:
         )
         screen.blit(lives_text, (self.width - 130, 10))
 
-        # End screen with replay and difficulty options.
+        # End screen and replay options.
         if self.game_over:
             overlay = pygame.Surface(
                 (self.width, self.height), pygame.SRCALPHA
