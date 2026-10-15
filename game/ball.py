@@ -1,4 +1,6 @@
+
 import pygame
+
 
 class Ball:
     def __init__(self, x, y, radius=8):
@@ -13,4 +15,9 @@ class Ball:
         self.y += self.vy
 
     def rect(self):
-        return pygame.Rect(self.x - self.radius, self.y - self.radius, self.radius * 2, self.radius * 2)
+        return pygame.Rect(
+            round(self.x - self.radius),
+            round(self.y - self.radius),
+            self.radius * 2,
+            self.radius * 2,
+        )
