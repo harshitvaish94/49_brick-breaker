@@ -18,31 +18,50 @@ BRICK_COLORS = [
     (80, 140, 200),
 ]
 
+# Ball speed and paddle width for each difficulty.
+DIFFICULTIES = {
+    "Easy": {"ball_speed": 3, "paddle_width": 125},
+    "Medium": {"ball_speed": 4, "paddle_width": 100},
+    "Hard": {"ball_speed": 6, "paddle_width": 75},
+}
+
 
 class GameEngine:
-    def __init__(self, width, height):
+    def __init__(self, width, height, difficulty="Medium"):
         self.width = width
         self.height = height
+        self.difficulty = difficulty
+
+        settings = DIFFICULTIES[difficulty]
+        paddle_width = settings["paddle_width"]
+        self.ball_speed = settings["ball_speed"]
 
         self.paddle = Paddle(
-            width // 2 - 50, height - 30, 100, 14
+            width // 2 - paddle_width // 2,
+            height - 30,
+            paddle_width,
+            14,
         )
 
         self.ball = Ball(width // 2, height - 50, radius=8)
-        self.ball.vx, self.ball.vy = 4, -4
+        self.ball.vx = self.ball_speed
+        self.ball.vy = -self.ball_speed
 
         self.rows, self.cols = 5, 8
         self.bricks = self._build_bricks(self.rows, self.cols)
 
         self.lives = 3
         self.score = 0
+
         self.font = pygame.font.SysFont("Arial", 28)
-        self.title_font = pygame.font.SysFont("Arial", 48, bold=True)
-        self.small_font = pygame.font.SysFont("Arial", 22)
+        self.title_font = pygame.font.SysFont("Arial", 44, bold=True)
+        self.small_font = pygame.font.SysFont("Arial", 20)
 
         self.game_over = False
         self.result = None
         self.quit_requested = False
+        self.restart_requested = False
+        self.selected_difficulty = difficulty
 
     def _build_bricks(self, rows, cols):
         bricks = []
@@ -61,9 +80,22 @@ class GameEngine:
         return bricks
 
     def handle_event(self, event):
-        # Task 2: Wait for a key press on the end screen.
+        # Show replay choices after the game ends.
         if self.game_over and event.type == pygame.KEYDOWN:
-            self.quit_requested = True
+            if event.key == pygame.K_1 or event.key == pygame.K_KP1:
+                self.selected_difficulty = "Easy"
+                self.restart_requested = True
+
+            elif event.key == pygame.K_2 or event.key == pygame.K_KP2:
+                self.selected_difficulty = "Medium"
+                self.restart_requested = True
+
+            elif event.key == pygame.K_3 or event.key == pygame.K_KP3:
+                self.selected_difficulty = "Hard"
+                self.restart_requested = True
+
+            elif event.key in (pygame.K_ESCAPE, pygame.K_q):
+                self.quit_requested = True
 
     def handle_input(self):
         if self.game_over:
@@ -78,7 +110,7 @@ class GameEngine:
             self.paddle.move(self.paddle.speed, self.width)
 
     def _resolve_collision(self, target_rect, previous_x, previous_y):
-        """Resolve a collision according to the ball's approach."""
+        """Bounce the ball according to the side it hit."""
         radius = self.ball.radius
 
         previous_rect = pygame.Rect(
@@ -91,12 +123,16 @@ class GameEngine:
 
         if previous_rect.bottom <= target_rect.top:
             self.ball.vy = -abs(self.ball.vy)
+
         elif previous_rect.top >= target_rect.bottom:
             self.ball.vy = abs(self.ball.vy)
+
         elif previous_rect.right <= target_rect.left:
             self.ball.vx = -abs(self.ball.vx)
+
         elif previous_rect.left >= target_rect.right:
             self.ball.vx = abs(self.ball.vx)
+
         else:
             overlap_x = (
                 min(current_rect.right, target_rect.right)
@@ -127,21 +163,23 @@ class GameEngine:
 
         self.ball.move()
 
-        # Side walls.
+        # Bounce off the left and right walls.
         if self.ball.x - self.ball.radius <= 0 and self.ball.vx < 0:
             self.ball.vx = abs(self.ball.vx)
+
         elif (
             self.ball.x + self.ball.radius >= self.width
             and self.ball.vx > 0
         ):
             self.ball.vx = -abs(self.ball.vx)
 
-        # Top wall.
+        # Bounce off the top wall.
         if self.ball.y - self.ball.radius <= 0 and self.ball.vy < 0:
             self.ball.vy = abs(self.ball.vy)
 
         # Paddle collision.
         paddle_rect = self.paddle.rect()
+
         if self.ball.rect().colliderect(paddle_rect):
             self._resolve_collision(
                 paddle_rect, previous_x, previous_y
@@ -160,7 +198,7 @@ class GameEngine:
                 self.score += 1
                 break
 
-        # Ball fell below the screen.
+        # Lose a life when the ball falls below the screen.
         if self.ball.y - self.ball.radius > self.height:
             self.lives -= 1
 
@@ -170,7 +208,7 @@ class GameEngine:
             else:
                 self._reset_ball()
 
-        # All bricks destroyed.
+        # Win when all bricks have been destroyed.
         if all(not brick.alive for brick in self.bricks):
             self.game_over = True
             self.result = "win"
@@ -178,12 +216,13 @@ class GameEngine:
     def _reset_ball(self):
         self.ball.x = self.width // 2
         self.ball.y = self.height - 50
-        self.ball.vx, self.ball.vy = 4, -4
+        self.ball.vx = self.ball_speed
+        self.ball.vy = -self.ball_speed
 
     def render(self, screen):
         screen.fill(BG)
 
-        # Draw the game.
+        # Draw paddle and ball.
         pygame.draw.rect(screen, WHITE, self.paddle.rect())
         pygame.draw.circle(
             screen,
@@ -192,12 +231,14 @@ class GameEngine:
             self.ball.radius,
         )
 
+        # Draw remaining bricks.
         for i, brick in enumerate(self.bricks):
             if brick.alive:
                 row = i // self.cols
                 color = BRICK_COLORS[row % len(BRICK_COLORS)]
                 pygame.draw.rect(screen, color, brick.rect())
 
+        # Display score and lives.
         score_text = self.font.render(
             f"Score: {self.score}", True, WHITE
         )
@@ -208,12 +249,12 @@ class GameEngine:
         )
         screen.blit(lives_text, (self.width - 130, 10))
 
-        # Task 2: Display a proper end screen.
+        # End screen with replay and difficulty options.
         if self.game_over:
             overlay = pygame.Surface(
                 (self.width, self.height), pygame.SRCALPHA
             )
-            overlay.fill((0, 0, 0, 190))
+            overlay.fill((0, 0, 0, 200))
             screen.blit(overlay, (0, 0))
 
             if self.result == "win":
@@ -226,28 +267,64 @@ class GameEngine:
             title_text = self.title_font.render(
                 title, True, title_color
             )
-            score_text = self.font.render(
+            final_score = self.font.render(
                 f"Final Score: {self.score}", True, WHITE
             )
-            prompt_text = self.small_font.render(
-                "Press any key to exit", True, GRAY
+            replay_text = self.small_font.render(
+                "Play Again - Choose Difficulty", True, WHITE
+            )
+            easy_text = self.small_font.render(
+                "1 - Easy: Slower Ball, Wider Paddle", True, GREEN
+            )
+            medium_text = self.small_font.render(
+                "2 - Medium: Normal Difficulty", True, WHITE
+            )
+            hard_text = self.small_font.render(
+                "3 - Hard: Faster Ball, Narrower Paddle", True, RED
+            )
+            exit_text = self.small_font.render(
+                "Esc - Exit", True, GRAY
             )
 
             screen.blit(
                 title_text,
                 title_text.get_rect(
-                    center=(self.width // 2, self.height // 2 - 60)
+                    center=(self.width // 2, 125)
                 ),
             )
             screen.blit(
-                score_text,
-                score_text.get_rect(
-                    center=(self.width // 2, self.height // 2 + 5)
+                final_score,
+                final_score.get_rect(
+                    center=(self.width // 2, 190)
                 ),
             )
             screen.blit(
-                prompt_text,
-                prompt_text.get_rect(
-                    center=(self.width // 2, self.height // 2 + 55)
+                replay_text,
+                replay_text.get_rect(
+                    center=(self.width // 2, 260)
+                ),
+            )
+            screen.blit(
+                easy_text,
+                easy_text.get_rect(
+                    center=(self.width // 2, 305)
+                ),
+            )
+            screen.blit(
+                medium_text,
+                medium_text.get_rect(
+                    center=(self.width // 2, 345)
+                ),
+            )
+            screen.blit(
+                hard_text,
+                hard_text.get_rect(
+                    center=(self.width // 2, 385)
+                ),
+            )
+            screen.blit(
+                exit_text,
+                exit_text.get_rect(
+                    center=(self.width // 2, 435)
                 ),
             )

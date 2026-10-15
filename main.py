@@ -15,6 +15,8 @@ engine = GameEngine(WIDTH, HEIGHT)
 
 
 def main():
+    global engine
+
     running = True
 
     while running:
@@ -26,6 +28,15 @@ def main():
 
         if engine.quit_requested:
             running = False
+
+        # Start a fresh game when a difficulty is selected.
+        if engine.restart_requested:
+            chosen_difficulty = engine.selected_difficulty
+            engine = GameEngine(
+                WIDTH,
+                HEIGHT,
+                difficulty=chosen_difficulty,
+            )
 
         if running:
             engine.handle_input()
@@ -40,3 +51,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
