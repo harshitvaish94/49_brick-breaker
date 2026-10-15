@@ -4,10 +4,11 @@ from .paddle import Paddle
 from .ball import Ball
 from .brick import Brick
 
-# Game Engine
-
 WHITE = (255, 255, 255)
 BG = (15, 15, 25)
+GREEN = (80, 220, 120)
+RED = (240, 80, 80)
+GRAY = (190, 190, 200)
 
 BRICK_COLORS = [
     (200, 60, 60),
@@ -36,8 +37,12 @@ class GameEngine:
         self.lives = 3
         self.score = 0
         self.font = pygame.font.SysFont("Arial", 28)
+        self.title_font = pygame.font.SysFont("Arial", 48, bold=True)
+        self.small_font = pygame.font.SysFont("Arial", 22)
+
         self.game_over = False
         self.result = None
+        self.quit_requested = False
 
     def _build_bricks(self, rows, cols):
         bricks = []
@@ -56,8 +61,9 @@ class GameEngine:
         return bricks
 
     def handle_event(self, event):
-        # Paddle movement is handled in handle_input().
-        pass
+        # Task 2: Wait for a key press on the end screen.
+        if self.game_over and event.type == pygame.KEYDOWN:
+            self.quit_requested = True
 
     def handle_input(self):
         if self.game_over:
@@ -72,7 +78,7 @@ class GameEngine:
             self.paddle.move(self.paddle.speed, self.width)
 
     def _resolve_collision(self, target_rect, previous_x, previous_y):
-        """Resolve a collision based on the ball's approach direction."""
+        """Resolve a collision according to the ball's approach."""
         radius = self.ball.radius
 
         previous_rect = pygame.Rect(
@@ -81,32 +87,21 @@ class GameEngine:
             radius * 2,
             radius * 2,
         )
-
         current_rect = self.ball.rect()
 
-        # The ball approached from above.
         if previous_rect.bottom <= target_rect.top:
             self.ball.vy = -abs(self.ball.vy)
-
-        # The ball approached from below.
         elif previous_rect.top >= target_rect.bottom:
             self.ball.vy = abs(self.ball.vy)
-
-        # The ball approached from the left.
         elif previous_rect.right <= target_rect.left:
             self.ball.vx = -abs(self.ball.vx)
-
-        # The ball approached from the right.
         elif previous_rect.left >= target_rect.right:
             self.ball.vx = abs(self.ball.vx)
-
         else:
-            # Corner or overlapping collision: use the smaller overlap.
             overlap_x = (
                 min(current_rect.right, target_rect.right)
                 - max(current_rect.left, target_rect.left)
             )
-
             overlap_y = (
                 min(current_rect.bottom, target_rect.bottom)
                 - max(current_rect.top, target_rect.top)
@@ -127,19 +122,14 @@ class GameEngine:
         if self.game_over:
             return
 
-        # Remember the position before moving.
         previous_x = self.ball.x
         previous_y = self.ball.y
 
         self.ball.move()
 
-        # Left and right walls.
-        if (
-            self.ball.x - self.ball.radius <= 0
-            and self.ball.vx < 0
-        ):
+        # Side walls.
+        if self.ball.x - self.ball.radius <= 0 and self.ball.vx < 0:
             self.ball.vx = abs(self.ball.vx)
-
         elif (
             self.ball.x + self.ball.radius >= self.width
             and self.ball.vx > 0
@@ -147,15 +137,11 @@ class GameEngine:
             self.ball.vx = -abs(self.ball.vx)
 
         # Top wall.
-        if (
-            self.ball.y - self.ball.radius <= 0
-            and self.ball.vy < 0
-        ):
+        if self.ball.y - self.ball.radius <= 0 and self.ball.vy < 0:
             self.ball.vy = abs(self.ball.vy)
 
         # Paddle collision.
         paddle_rect = self.paddle.rect()
-
         if self.ball.rect().colliderect(paddle_rect):
             self._resolve_collision(
                 paddle_rect, previous_x, previous_y
@@ -170,7 +156,6 @@ class GameEngine:
                 self._resolve_collision(
                     brick.rect(), previous_x, previous_y
                 )
-
                 brick.alive = False
                 self.score += 1
                 break
@@ -198,8 +183,8 @@ class GameEngine:
     def render(self, screen):
         screen.fill(BG)
 
+        # Draw the game.
         pygame.draw.rect(screen, WHITE, self.paddle.rect())
-
         pygame.draw.circle(
             screen,
             WHITE,
@@ -221,17 +206,48 @@ class GameEngine:
         lives_text = self.font.render(
             f"Lives: {self.lives}", True, WHITE
         )
-        screen.blit(
-            lives_text, (self.width - 130, 10)
-        )
+        screen.blit(lives_text, (self.width - 130, 10))
 
-        # Task 2 will replace this console message with an end screen.
-        if self.game_over and not getattr(
-            self, "_game_over_logged", False
-        ):
+        # Task 2: Display a proper end screen.
+        if self.game_over:
+            overlay = pygame.Surface(
+                (self.width, self.height), pygame.SRCALPHA
+            )
+            overlay.fill((0, 0, 0, 190))
+            screen.blit(overlay, (0, 0))
+
             if self.result == "win":
-                print("You win! Final score:", self.score)
+                title = "YOU WIN!"
+                title_color = GREEN
             else:
-                print("Game over! Final score:", self.score)
+                title = "GAME OVER"
+                title_color = RED
 
-            self._game_over_logged = True
+            title_text = self.title_font.render(
+                title, True, title_color
+            )
+            score_text = self.font.render(
+                f"Final Score: {self.score}", True, WHITE
+            )
+            prompt_text = self.small_font.render(
+                "Press any key to exit", True, GRAY
+            )
+
+            screen.blit(
+                title_text,
+                title_text.get_rect(
+                    center=(self.width // 2, self.height // 2 - 60)
+                ),
+            )
+            screen.blit(
+                score_text,
+                score_text.get_rect(
+                    center=(self.width // 2, self.height // 2 + 5)
+                ),
+            )
+            screen.blit(
+                prompt_text,
+                prompt_text.get_rect(
+                    center=(self.width // 2, self.height // 2 + 55)
+                ),
+            )
